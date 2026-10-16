@@ -1,2 +1,2 @@
 # coroutine
-C Header-Only Simple Coroutine Library
+C23 Header-Only Simple Coroutine Library
