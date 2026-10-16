@@ -15,7 +15,12 @@
 #include "coroutine/co_status.h"
 #include <stdlib.h>
 
+// Macro to define the main coroutine context and the current coroutine pointer.
+// Must be included in exactly one source file to define the main coroutine context and the current coroutine pointer.
+#define COROUTINE_IMPLEMENTATION co_context_t main_co_ctx; coroutine_t* curr_co = nullptr;
+
 #define COROUTINE_DEFAULT_STACK_SIZE (64 * 1024) // 64 KB stack size for each coroutine
+
 
 typedef struct {
   co_context_t ctx;
@@ -23,40 +28,21 @@ typedef struct {
   void* (*func)(void*);
   void* arg;
   void* ret_val;
+  size_t reserved_stack_sz;
   co_status status;
 } coroutine_t;
 
-static inline co_context_t* get_main_co_ctx() {
-  static co_context_t main_ctx;
-  return &main_ctx;
-}
-
-static inline coroutine_t* internal_curr_coroutine(bool set, coroutine_t* co) {
-  static coroutine_t* curr_co = nullptr;
-  if (set) {
-    curr_co = co;
-  }
-  return curr_co;
-}
-
-static inline coroutine_t* get_curr_coroutine() {
-  return internal_curr_coroutine(false, nullptr);
-}
-
-static inline void set_curr_coroutine(coroutine_t* co) {
-  internal_curr_coroutine(true, co);
-}
+extern co_context_t main_co_ctx;
+extern coroutine_t* curr_co;
 
 static inline void coroutine_entry_point(void) {
-  coroutine_t* current_co = get_curr_coroutine();
-
-  if (current_co && current_co->func) {
-    current_co->ret_val = current_co->func(current_co->arg);
+  if (curr_co && curr_co->func) {
+    curr_co->ret_val = curr_co->func(curr_co->arg);
   }
 
-  if (current_co) {
-    current_co->status = CO_DEAD;
-    co_switch(&current_co->ctx, get_main_co_ctx());
+  if (curr_co) {
+    curr_co->status = CO_DEAD;
+    co_switch(&curr_co->ctx, &main_co_ctx);
   }
 }
 
@@ -75,9 +61,10 @@ static inline coroutine_t* co_create_sz(void* (*func)(void*), void* arg, size_t 
   co->func = func;
   co->arg = arg;
   co->ret_val = nullptr;
+  co->reserved_stack_sz = stack_size;
   co->status = CO_READY;
 
-  uintptr_t* stack_top = (uintptr_t*)((uintptr_t)co->stack + stack_size);
+  uintptr_t* stack_top = (uintptr_t*)((uintptr_t)co->stack + co->reserved_stack_sz);
   stack_top = (uintptr_t*)((uintptr_t)stack_top & -16L);
 
   *(--stack_top) = 0;
@@ -94,7 +81,7 @@ static inline coroutine_t *co_create(void* (*func)(void*), void* arg) {
 }
 
 static inline void co_yield(void) {
-  coroutine_t* current_co = get_curr_coroutine();
+  coroutine_t* current_co = curr_co;
   if (!current_co) {
     return;
   }
@@ -103,7 +90,7 @@ static inline void co_yield(void) {
   coroutine_t *suspended_co = current_co;
   current_co = nullptr;
 
-  co_switch(&suspended_co->ctx, get_main_co_ctx());
+  co_switch(&suspended_co->ctx, &main_co_ctx);
 }
 
 static inline bool co_resume(coroutine_t *co) {
@@ -111,9 +98,9 @@ static inline bool co_resume(coroutine_t *co) {
     return false;
   }
 
-  set_curr_coroutine(co);
+  curr_co = co;
   co->status = CO_RUNNING;
-  co_switch(get_main_co_ctx(), &co->ctx);
+  co_switch(&main_co_ctx, &co->ctx);
 
   return co->status != CO_DEAD;
 }
@@ -127,6 +114,30 @@ static inline void co_free(coroutine_t *co) {
     free(co->stack);
   }
   free(co);
+}
+
+static inline size_t get_co_reserved_stack_size(const coroutine_t *co) {
+  if (!co) {
+    return 0;
+  }
+  return co->reserved_stack_sz;
+}
+
+static inline size_t get_co_stack_size(const coroutine_t *co) {
+    if (!co) {
+        return 0;
+    }
+
+    uintptr_t stack_top = (uintptr_t)co->stack + co->reserved_stack_sz;
+    stack_top = stack_top & -16L;
+
+    uintptr_t suspended_rsp = (uintptr_t)co->ctx.rsp;
+
+    if (suspended_rsp > stack_top || suspended_rsp < (uintptr_t)co->stack) {
+        return 0; 
+    }
+
+    return (size_t)(stack_top - suspended_rsp);
 }
 
 #endif // COROUTINE_H_
