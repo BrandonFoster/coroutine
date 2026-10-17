@@ -1,15 +1,15 @@
 /**
- * @file coroutine/co_context.h
+ * @file coroutine/co_thread/context.h
  * @author Brandon Foster (https://github.com/BrandonFoster)
- * @brief Declares the co_context_t structure and co_switch function for coroutine context switching.
+ * @brief Declares the co_thread_context_t structure and co_thread_switch function for coroutine co_thread context switching.
  *
  * Copyright (c) 2026 Brandon Foster.
  *
- * Declares the common structure and function used to save and restore coroutine contexts.
+ * Declares the common structure and function used to save and restore stackful coroutine contexts.
  */
 
-#ifndef CO_CONTEXT_H_
-#define CO_CONTEXT_H_
+#ifndef COROUTINE_CO_THREAD_CONTEXT_H_
+#define COROUTINE_CO_THREAD_CONTEXT_H_
 
 typedef struct {
   void* rsp; // stack pointer
@@ -19,10 +19,10 @@ typedef struct {
   void* r13; // callee-saved register
   void* r14; // callee-saved register
   void* r15; // callee-saved register
-} co_context_t;
+} co_thread_context_t;
 
 __attribute__((naked, noinline, sysv_abi))
-static void co_switch(co_context_t* save, co_context_t* restore) {
+static void co_thread_switch(co_thread_context_t* save, co_thread_context_t* restore) {
   __asm__ volatile(
     // save current context into 'save' structure (pointed to by %rcx)
     "movq %%rsp, 0(%0)\n\t"
@@ -48,4 +48,4 @@ static void co_switch(co_context_t* save, co_context_t* restore) {
   );
 }
 
-#endif // CO_CONTEXT_H_
+#endif // COROUTINE_CO_THREAD_CONTEXT_H_
